@@ -439,7 +439,7 @@ export function buildPhotoStudioPrompt({ influencer, location, timeOfDay, pose, 
   const outfitMap = gender === 'Male' ? OUTFIT_PRESET_MAP_MALE : OUTFIT_PRESET_MAP_FEMALE
   const hasHairstyleOverride = !!hairstyleText?.trim()
   const wardrobe = wardrobeTag
-    ? `the complete outfit from ${wardrobeTag} — reproduce every item exactly as shown: all clothing, headwear, and accessories must match the reference. If headwear is present in the reference, it must be worn on the head${hasHairstyleOverride ? '' : '. Match the hairstyle from this reference exactly'}`
+    ? `the complete outfit from ${wardrobeTag} — reproduce every item exactly as shown: all clothing and accessories must match the reference. If headwear is present in the reference, it must be worn on the head. IMPORTANT — SUBJECT ISOLATION: any person visible in ${wardrobeTag} is a placeholder model, NOT the subject. Completely ignore that person's face, head, hairstyle, skin tone, ethnicity, and body proportions. Transfer ONLY the garments and accessories onto the subject. The subject's face, skin, hair, and identity come exclusively from ${faceTag || 'the identity reference'}.${hasHairstyleOverride ? '' : ''}`
     : wardrobeText?.trim()
       || (outfitPreset && outfitPreset !== 'current' && outfitMap[outfitPreset])
       || 'their current outfit'
@@ -504,7 +504,7 @@ export function buildPhotoStudioPrompt({ influencer, location, timeOfDay, pose, 
 
     // Each wearing ref is its own instruction (could be distinct items)
     wearingRefs.forEach(({ tag }) => {
-      lines.push(`Wearing the item from ${tag} on the body — it is worn, not held in hand, not carried. Match every product detail, colour, and branding exactly as shown in the reference.`)
+      lines.push(`Wearing the item from ${tag} on the body — it is worn, not held in hand, not carried. Match every product detail, colour, and branding exactly as shown in the reference. Any person wearing the item in ${tag} is a placeholder model — ignore their face, head, skin tone, and body entirely; transfer only the item itself onto the subject.`)
     })
 
     if (propRefs.length) lines.push('Product consistency is critical — the item must be identical to the reference.')

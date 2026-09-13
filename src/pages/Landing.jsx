@@ -183,7 +183,7 @@ export default function Landing() {
             <span style={{ position:'absolute', width:10, height:10, borderRadius:'50%', background:'#34C759', opacity:0.35, animation:'ping 1.8s ease-out infinite' }}/>
             <span style={{ width:7, height:7, borderRadius:'50%', background:'#34C759', flexShrink:0 }}/>
           </span>
-          Made by Dan Kieft
+          ADV3NT Visual Cortex
         </div>
 
         <h1 style={{ fontSize:'clamp(62px,10vw,104px)', fontWeight:800, letterSpacing:'-3.5px', lineHeight:1.0, color:'#fff', marginBottom:2 }}>
@@ -201,7 +201,7 @@ export default function Landing() {
         </div>
 
         <p style={{ fontSize:20, color:'rgba(255,255,255,0.38)', lineHeight:1.65, margin:'0 auto 52px', maxWidth:420, fontWeight:400, letterSpacing:'-0.1px' }}>
-          Build, manage, and grow your AI influencers.
+          Build, manage, and deploy sovereign AI personas.
         </p>
 
         <button

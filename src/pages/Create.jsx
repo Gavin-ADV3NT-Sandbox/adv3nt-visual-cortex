@@ -4,8 +4,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useInfluencers, generateId } from '../store'
 import { buildThreeVariationPrompts } from '../utils/systemPrompt'
 import { analyzeBackstory } from '../utils/backstoryAnalysis'
-import { generateThreeImages } from '../utils/higgsfieldGenerate'
-import { isHFConnected, startHiggsfieldOAuthPopup } from '../utils/higgsfieldAuth'
+import { generateThreeImages } from '../utils/elevenlabsGenerate'
+import { startHiggsfieldOAuthPopup } from '../utils/higgsfieldAuth' // vestigial connect UI only — generation runs on ElevenLabs
 import { compressImage } from '../utils/imageUtils'
 import { gColor } from '../utils/influencerUtils'
 
@@ -1267,7 +1267,7 @@ function Step5({ data, onFinish, onReset, hfConnected, onConnected }) {
     try {
       const physicalDesc = buildPhysicalDescString(data)
 
-      // Tier 2: Claude analyzes the backstory before building prompts
+      // Tier 2: ADV3NT Engine analyzes the backstory before building prompts
       const backstoryContext = await analyzeBackstory(data.backstory, physicalDesc)
       backstoryCtxRef.current = backstoryContext
 
@@ -1566,7 +1566,7 @@ export default function Create() {
 
   const [shakeContinue, setShakeContinue] = useState(false)
   const [ageErrorPulse, setAgeErrorPulse] = useState(false)
-  const [hfConnected, setHfConnected] = useState(isHFConnected)
+  const [hfConnected, setHfConnected] = useState(true) // always connected — ElevenLabs proxy needs no browser auth
 
   function set(k, v) { setData(prev => ({ ...prev, [k]: v })) }
 
@@ -1728,36 +1728,27 @@ export default function Create() {
           </div>
         )}
 
-        {/* Claude API key nudge — same card DNA as HF, visually secondary */}
-        {step === 1 && !localStorage.getItem('claude_api_key') && (
+        {/* ADV3NT Engine status — server-side, no key needed */}
+        {step === 1 && (
           <div style={{
             marginBottom: 32, borderRadius: 14, padding: '1.5px',
-            background: 'rgba(245,158,11,0.45)',
+            background: 'rgba(52,199,89,0.35)',
           }}>
             <div style={{
               borderRadius: 13, padding: '11px 14px',
-              background: 'color-mix(in srgb, var(--bg) 94%, #F59E0B 6%)',
+              background: 'color-mix(in srgb, var(--bg) 94%, #34C759 6%)',
               backdropFilter: 'blur(12px)',
               display: 'flex', alignItems: 'center', gap: 10,
             }}>
               <div style={{
                 width: 32, height: 32, borderRadius: 9, flexShrink: 0,
-                background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)',
+                background: 'rgba(52,199,89,0.12)', border: '1px solid rgba(52,199,89,0.25)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#34C759' }} />
               </div>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Connect Claude for smarter prompts</span>
-              <button onClick={() => navigate('/settings')} style={{
-                flexShrink: 0, padding: '7px 14px', borderRadius: 8,
-                background: 'transparent',
-                color: '#D97706', fontSize: 12, fontWeight: 800,
-                border: '1.5px solid rgba(245,158,11,0.4)',
-                cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s',
-              }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.12)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
-              >Connect →</button>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>ADV3NT Engine: Active</span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>MiniMax-M3 · GLM-5</span>
             </div>
           </div>
         )}

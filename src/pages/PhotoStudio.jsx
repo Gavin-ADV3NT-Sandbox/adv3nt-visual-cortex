@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { generateNImages, generatePosePreviews, generateSingleImage, savePendingPhoto, clearPendingPhoto, getPendingPhoto, pollAllJobs, hasPhotoGenSession } from '../utils/higgsfieldGenerate'
-import { isHFConnected } from '../utils/higgsfieldAuth'
-import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../utils/charSheetPrompt'
+import { generateNImages, generatePosePreviews, generateSingleImage, savePendingPhoto, clearPendingPhoto, getPendingPhoto, pollAllJobs, hasPhotoGenSession } from '../utils/elevenlabsGenerate'
+import { buildCharSheetPrompt } from '../utils/charSheetPrompt'
+import { buildCharSheetPromptWithGavin } from '../utils/gavin'
 import { useInfluencers, useBrandDeals } from '../store'
 import WardrobeDrawer from '../components/WardrobeDrawer'
 import {
@@ -311,7 +311,7 @@ function OutfitCard({ image, label, active, onClick }) {
 
 const PROP_SHEET_DURATION_MS = 130000
 
-function PropGeneratingSlot({ apiProgress, claudeStatus }) {
+function PropGeneratingSlot({ apiProgress, engineStatus }) {
   const [smoothPct, setSmoothPct] = useState(0)
   const [elapsed,   setElapsed]   = useState(0)
   const startRef  = useRef(Date.now())
@@ -335,15 +335,15 @@ function PropGeneratingSlot({ apiProgress, claudeStatus }) {
 
   const displayPct = Math.round(Math.max(smoothPct, apiProgress || 0))
   const elapsedLabel = elapsed < 60 ? `${elapsed}s` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`
-  const statusLabel = claudeStatus === 'analyzing' ? 'Asking Claude…'
-    : claudeStatus === 'done' ? '✓ Claude analyzed'
+  const statusLabel = engineStatus === 'analyzing' ? 'Asking ADV3NT Engine…'
+    : engineStatus === 'done' ? '✓ ADV3NT Engine analyzed'
     : displayPct < 15 ? 'Starting…' : 'Generating…'
 
   return (
     <div style={{ width: 100, height: 100, borderRadius: 12, border: '1.5px solid rgba(139,92,246,0.35)', background: 'var(--bg-tertiary)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, overflow: 'hidden', position: 'relative' }}>
       <div style={{ width: 18, height: 18, borderRadius: '50%', border: '2px solid rgba(139,92,246,0.2)', borderTopColor: '#8B5CF6', animation: 'spin 0.75s linear infinite' }} />
       <div style={{ fontSize: 11, fontWeight: 700, color: '#8B5CF6' }}>{displayPct}%</div>
-      <div style={{ fontSize: 8, fontWeight: 600, color: claudeStatus === 'done' ? '#34C759' : claudeStatus === 'analyzing' ? '#8B5CF6' : 'var(--text-tertiary)', textAlign: 'center', letterSpacing: '0.2px', padding: '0 6px' }}>{statusLabel}</div>
+      <div style={{ fontSize: 8, fontWeight: 600, color: engineStatus === 'done' ? '#34C759' : engineStatus === 'analyzing' ? '#8B5CF6' : 'var(--text-tertiary)', textAlign: 'center', letterSpacing: '0.2px', padding: '0 6px' }}>{statusLabel}</div>
       <div style={{ fontSize: 8, color: 'var(--text-tertiary)', fontVariantNumeric: 'tabular-nums' }}>{elapsedLabel}</div>
       {/* Progress bar */}
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, background: 'var(--border)' }}>
@@ -426,7 +426,7 @@ export default function PhotoStudioPanel({ influencer, onGoToWardrobe, onUseAsSt
   const [brandPickerSlot, setBrandPickerSlot] = useState(null)
   const [propGenerating,   setPropGenerating]   = useState({}) // { [idx]: bool }
   const [propProgress,     setPropProgress]     = useState({}) // { [idx]: 0-100 }
-  const [propClaudeStatus, setPropClaudeStatus] = useState({}) // { [idx]: 'analyzing'|'done'|null }
+  const [propEngineStatus, setPropEngineStatus] = useState({}) // { [idx]: 'analyzing'|'done'|null }
   const propFileRef    = useRef(null)
   const propSlotRef    = useRef(0)
   const [expandedImg,  setExpandedImg]  = useState(null)
@@ -631,7 +631,6 @@ export default function PhotoStudioPanel({ influencer, onGoToWardrobe, onUseAsSt
   async function generatePropSheet(idx) {
     const slot = propSlots[idx]
     if (!slot?.image) return
-    if (!isHFConnected()) { alert('Connect Higgsfield in Settings first'); return }
 
     // Resolve target slot index upfront so the spinner shows there, not on the source
     const existingTarget = propSlots.findIndex((s, i) => i > idx && !s)
@@ -642,17 +641,14 @@ export default function PhotoStudioPanel({ influencer, onGoToWardrobe, onUseAsSt
     setPropProgress(p => ({ ...p, [targetIdx]: 0 }))
     try {
       let prompt = null
-      const claudeKey = localStorage.getItem('claude_api_key')
-      if (claudeKey) {
-        try {
-          setPropProgress(p => ({ ...p, [targetIdx]: 5 }))
-          setPropClaudeStatus(s => ({ ...s, [targetIdx]: 'analyzing' }))
-          prompt = await buildCharSheetPromptWithClaude(slot.image, propText || 'product', '', claudeKey)
-          setPropClaudeStatus(s => ({ ...s, [targetIdx]: 'done' }))
-          setTimeout(() => setPropClaudeStatus(s => ({ ...s, [targetIdx]: null })), 3000)
-        } catch (e) {
-          setPropClaudeStatus(s => ({ ...s, [targetIdx]: null }))
-        }
+      try {
+        setPropProgress(p => ({ ...p, [targetIdx]: 5 }))
+        setPropEngineStatus(s => ({ ...s, [targetIdx]: 'analyzing' }))
+        prompt = await buildCharSheetPromptWithGavin(slot.image, propText || 'product', '')
+        setPropEngineStatus(s => ({ ...s, [targetIdx]: 'done' }))
+        setTimeout(() => setPropEngineStatus(s => ({ ...s, [targetIdx]: null })), 3000)
+      } catch (e) {
+        setPropEngineStatus(s => ({ ...s, [targetIdx]: null }))
       }
       if (!prompt) prompt = buildCharSheetPrompt(propText || 'product', '')
       setPropProgress(p => ({ ...p, [targetIdx]: 15 }))
@@ -675,7 +671,7 @@ export default function PhotoStudioPanel({ influencer, onGoToWardrobe, onUseAsSt
     } finally {
       setPropGenerating(p => ({ ...p, [targetIdx]: false }))
       setPropProgress(p => ({ ...p, [targetIdx]: 0 }))
-      setPropClaudeStatus(s => ({ ...s, [targetIdx]: null }))
+      setPropEngineStatus(s => ({ ...s, [targetIdx]: null }))
     }
   }
 
@@ -1346,7 +1342,7 @@ export default function PhotoStudioPanel({ influencer, onGoToWardrobe, onUseAsSt
                   >{propGenerating[idx] ? `${Math.round(propProgress[idx] || 0)}%…` : 'Generate Product Sheet'}</button>
                 </div>
               ) : propGenerating[idx] ? (
-                <PropGeneratingSlot apiProgress={propProgress[idx] || 0} claudeStatus={propClaudeStatus[idx] || null} />
+                <PropGeneratingSlot apiProgress={propProgress[idx] || 0} engineStatus={propEngineStatus[idx] || null} />
               ) : (
                 <>
                   {propSlots.length > 1 && (

@@ -27,8 +27,8 @@ export function buildCharSheetPrompt(brand, category, productDesc = null, angles
   return `Professional product character sheet on a pure white (#FFFFFF) background. The subject is a ${subject}. ${angleSpec} Create a single composite image with exactly 6 panels in a strict uniform 3-column by 2-row grid. All 6 panels are perfectly equal in size — no panel larger or smaller than another, no gaps, no overlapping, strict grid alignment. The product is visually identical across all panels — same exact colors, materials, textures, logos, design details, and proportions throughout. For any angle or surface not explicitly described, match exactly the colors, materials, and finish shown in the reference image — do not invent or assume any detail. All branding, logos, and text physically on the product are preserved and clearly visible. No annotation labels, no "Front" / "Back" / "Side" captions, no text overlays of any kind. Studio product photography: soft even lighting, sharp focus throughout, perfectly clean white background, professional commercial quality. 16:9 landscape format.`
 }
 
-export async function buildCharSheetPromptWithClaude(images, brand, category, apiKey) {
-  // images is an array of data URLs
+export async function buildCharSheetPromptWithADV3NT(images, brand, category, apiKey) {
+  // images is an array of data URLs — routed through ADV3NT Engine (Gavin Proxy)
   const imageBlocks = (Array.isArray(images) ? images : [images]).map(dataUrl => {
     const [header, base64] = dataUrl.split(',')
     const mediaType = header.match(/:(.*?);/)?.[1] || 'image/jpeg'
@@ -36,15 +36,13 @@ export async function buildCharSheetPromptWithClaude(images, brand, category, ap
   })
 
   const imageCount = imageBlocks.length
-  const res = await fetch('/api/claude', {
+  const res = await fetch('/api/gavin', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      'x-api-key': apiKey || '',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
       max_tokens: 2000,
       system: `You are a luxury product expert and photography director. You have deep knowledge of designer brands, product lines, and how they look from every angle. You study product images and use your training knowledge to produce detailed, accurate descriptions. Output JSON only — nothing else.`,
       messages: [{
@@ -67,12 +65,12 @@ Output only valid JSON. No explanation, no markdown.` },
     }),
   })
 
-  if (!res.ok) throw new Error(`Claude analysis failed (${res.status})`)
+  if (!res.ok) throw new Error(`ADV3NT Engine analysis failed (${res.status})`)
   const data = await res.json()
   if (data.error) throw new Error(data.error.message)
 
-  const text = data.content?.[0]?.text?.trim()
-  if (!text) throw new Error('Claude returned empty response')
+  const text = data.content?.[0]?.text?.trim() || data.choices?.[0]?.message?.content?.trim()
+  if (!text) throw new Error('ADV3NT Engine returned empty response')
 
   // Try to extract JSON from anywhere in the response
   let json = null
@@ -85,8 +83,8 @@ Output only valid JSON. No explanation, no markdown.` },
     try { json = attempt(); break } catch {}
   }
 
-  if (!json) throw new Error('Claude response could not be parsed as JSON. Raw: ' + text.slice(0, 200))
-  if (!json.productDesc) throw new Error('Claude JSON missing productDesc field')
+  if (!json) throw new Error('ADV3NT Engine response could not be parsed as JSON. Raw: ' + text.slice(0, 200))
+  if (!json.productDesc) throw new Error('ADV3NT Engine JSON missing productDesc field')
 
   return buildCharSheetPrompt(brand, category, json.productDesc, json.angles || null)
 }

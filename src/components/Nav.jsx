@@ -61,7 +61,7 @@ export default function Nav() {
           fontWeight: 700, fontSize: 15, letterSpacing: '-0.4px',
           color: dark ? 'rgba(255,255,255,0.90)' : 'var(--text-primary)',
           transition: 'color 0.5s',
-        }}>Influencer Studio</span>
+        }}>ADV3NT Visual Cortex</span>
       </NavLink>
 
       {/* Nav links */}

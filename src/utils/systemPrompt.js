@@ -1103,7 +1103,7 @@ function getCharacterFraming(personality) {
   return 'natural, unhurried energy — comfortable in the moment. Real person, real life, not a model on a shoot'
 }
 
-// ── Claude system prompt ──────────────────────────────────────
+// ── ADV3NT Engine system prompt ──────────────────────────────
 export const HIGGSFIELD_SYSTEM = `You are a specialized prompt engineer for AI Influencer Studio — an app that generates iPhone-realism influencer photos. Every image must look exactly like a real photo taken on an iPhone by a friend: handheld, natural found light, real location, zero professional photography setup, zero retouching. This is the core identity of the product.
 
 You write prompts only — never generate images. Convert the influencer profile below into a single GPT Image 2 prompt using EXACTLY this section format, with a blank line between each section:
@@ -1146,7 +1146,7 @@ Rules:
 - Positive skin framing only — describe what real skin looks like
 - Output ONLY the prompt inside one code block — no explanation, no preamble`
 
-// ── Brief for Claude ──────────────────────────────────────────
+// ── Brief for ADV3NT Engine ──────────────────────────────────
 export function buildPromptInput(d) {
   const p = d.personality ?? 50
   const personalityDesc = p < 30
@@ -1190,7 +1190,7 @@ export function buildDirectPrompt(d, forcePose = null, options = {}, aspectRatio
   const isEditorial = vibes.includes('Editorial')
 
   // Always run tier-3 — it owns buildHint, physicalDetail, lockedScene.
-  // Claude (tier-2) contributes dailyContext and can override sceneNiche/tags for unusual professions.
+  // ADV3NT Engine (tier-2) contributes dailyContext and can override sceneNiche/tags for unusual professions.
   const tier3Ctx = getBackstoryContext(d.physicalDesc, backstory)
   const backstoryCtx = d.backstoryContext
     ? {
@@ -1307,7 +1307,7 @@ export function buildThreeVariationPrompts(d, aspectRatio = '9:16', model = 'gpt
     ]
   }
   // Variation 3 is backstory-locked when a profession is detected.
-  // Tier-3 always owns lockedScene; Claude can add sceneNiche for unusual professions.
+  // Tier-3 always owns lockedScene; ADV3NT Engine can add sceneNiche for unusual professions.
   const tier3Ctx = getBackstoryContext(d.physicalDesc, d.backstory?.trim() || '')
   const hasBackstoryLock = !!(tier3Ctx.sceneNiche || tier3Ctx.lockedScene || d.backstoryContext?.sceneNiche)
 

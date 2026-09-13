@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { generateSingleImage, initSession, pollAllJobs } from '../utils/higgsfieldGenerate'
+import { generateSingleImage, initSession, pollAllJobs } from '../utils/elevenlabsGenerate'
 import { generateId } from '../store'
 
 export function buildWardrobePrompt(influencer, { outfit, hair, customText }) {
   const phys = influencer.physicalDesc ? `The subject: ${influencer.physicalDesc}. ` : ''
-  const identity = `IDENTITY LOCK — replicate exactly from reference: facial bone structure, face shape, jaw, nose bridge and tip, lip shape, eye shape and color, eyebrow arch and thickness, skin tone, skin texture and pores, all freckles, moles, marks, scars, natural asymmetries. Zero facial drift — this must be unmistakably the same person.`
-  const layout = `Output must be the exact same 4-panel character turnaround sheet as the reference image. Single row of four equally sized full-body panels with these labels in clean sans-serif capitals above each: "FRONT VIEW" | "SIDE VIEW" | "BACK VIEW" | "THREE-QUARTER VIEW". Keep identical body poses, stance, arm positions, proportions, and panel layout from the reference. Do NOT change poses, labels, panel structure, background (pure white seamless), or lighting.`
+  const identity = `IDENTITY LOCK — the first reference image defines the subject's exact identity. Replicate from it: facial bone structure, face shape, jaw, nose bridge and tip, lip shape, eye shape and color, eyebrow arch and thickness, skin tone, skin texture and pores, all freckles, moles, marks, natural asymmetries, hairline and hair color. Zero facial drift — this must be unmistakably the same person as the first reference image.`
+  const layout = `Layout: single row of four equally sized full-body panels, head to toe, each with a label in clean sans-serif capitals above the figure: "FRONT VIEW" (facing directly forward, arms relaxed at sides, feet together) | "SIDE VIEW" (perfect left profile, arms at sides) | "BACK VIEW" (facing away, arms relaxed) | "THREE-QUARTER VIEW" (45-degree angle facing forward-right). All four panels show the SAME person — identical face, hair, skin tone, body proportions, and outfit. Pure white seamless background, soft neutral studio lighting, flat and even across all four panels — no shadows, no color cast.`
   const changeParts = [
     outfit && `outfit — ${outfit}`,
     hair && `hairstyle — ${hair}`,
@@ -103,6 +103,9 @@ export default function WardrobeDrawer({ influencer, pendingResult, onResult, on
     setError(null)
     try {
       const outfitParts = [top, bottom, footwear].filter(Boolean).join(', ')
+      // STRICT IDENTITY ANCHORING: mainImage (canonical headshot) is the ONLY image
+      // reference. No secondary turnaround/sheet refs — layout comes from text
+      // constraints so a drifted sheet can never contaminate cross-attention.
       const prompt = buildWardrobePrompt(influencer, { outfit: outfitParts, hair, customText: customText || null })
       const url = await generateSingleImage({
         prompt, aspectRatio: '16:9', referenceImage: refImage,

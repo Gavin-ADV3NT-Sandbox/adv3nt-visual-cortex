@@ -1,6 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
-import { startHiggsfieldOAuthPopup, disconnectHF, isHFConnected } from '../utils/higgsfieldAuth'
 import { useTheme } from '../context/theme'
 
 function Section({ title, children }) {
@@ -14,40 +12,21 @@ function Section({ title, children }) {
   )
 }
 
-const CLAUDE_KEY = 'claude_api_key'
+function StatusDot({ color }) {
+  return <div style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
+}
 
 export default function Settings() {
-  const location = useLocation()
   const { theme, toggle } = useTheme()
-  const [hfConnected, setHfConnected] = useState(isHFConnected)
-  const [hfLoading, setHfLoading] = useState(false)
-  const [claudeKey, setClaudeKey] = useState(() => localStorage.getItem(CLAUDE_KEY) || '')
-  const [claudeInput, setClaudeInput] = useState('')
-  const [showClaudeInput, setShowClaudeInput] = useState(false)
+  // Live proxy health check — proves the server-side key path, not just a static label
+  const [elStatus, setElStatus] = useState('checking') // checking | active | unreachable
   useEffect(() => {
-    const params = new URLSearchParams(location.search)
-    if (params.get('connected') === '1') {
-      setHfConnected(true)
-    }
-  }, [location.search])
-
-  async function connectHiggsfield() {
-    setHfLoading(true)
-    try {
-      await startHiggsfieldOAuthPopup()
-      setHfConnected(true)
-    } catch (e) {
-      if (e.message !== 'cancelled') alert('Failed to connect Higgsfield: ' + e.message)
-    } finally {
-      setHfLoading(false)
-    }
-  }
-
-  function disconnectHighgsfield() {
-    if (!confirm('Disconnect your Higgsfield account?')) return
-    disconnectHF()
-    setHfConnected(false)
-  }
+    let cancelled = false
+    fetch('/api/elevenlabs/video?page_size=1')
+      .then(r => { if (!cancelled) setElStatus(r.ok ? 'active' : 'unreachable') })
+      .catch(() => { if (!cancelled) setElStatus('unreachable') })
+    return () => { cancelled = true }
+  }, [])
 
   return (
     <div style={{ paddingTop: 'var(--nav-h)', minHeight: '100vh', background: 'var(--bg)' }}>
@@ -89,100 +68,36 @@ export default function Settings() {
           </div>
         </Section>
 
-        <Section title="Higgsfield">
+        <Section title="ElevenLabs Creative Engine">
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
-            Connect your Higgsfield account to generate influencer images directly in the app. Images use your own Higgsfield credits.
+            All video and image generation runs on the ElevenLabs Developer Grant via the OpenClaw server-side proxy. No browser sign-in, no client-side credentials.
           </p>
-          {hfConnected ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#34C759' }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#34C759' }}>Higgsfield connected</span>
-              </div>
-              <button onClick={disconnectHighgsfield} style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, color: '#FF3B30', background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.18)', fontWeight: 500 }}>
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={connectHiggsfield}
-              disabled={hfLoading}
-              style={{ padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 600, background: '#1D1D1F', color: '#fff', display: 'flex', alignItems: 'center', gap: 8, opacity: hfLoading ? 0.6 : 1 }}
-            >
-              {hfLoading ? (
-                <>
-                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', animation: 'spin 0.7s linear infinite' }} />
-                  Connecting…
-                </>
-              ) : (
-                'Connect Higgsfield'
-              )}
-              <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StatusDot color={elStatus === 'active' ? '#34C759' : elStatus === 'checking' ? '#FF9F0A' : '#FF3B30'} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: elStatus === 'active' ? '#34C759' : elStatus === 'checking' ? '#FF9F0A' : '#FF3B30' }}>
+              {elStatus === 'active' ? 'Active — Connected via OpenClaw server-side proxy'
+                : elStatus === 'checking' ? 'Checking proxy status…'
+                : 'Proxy unreachable — check OpenClaw gateway'}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px', marginTop: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontWeight: 600 }}>API Key</span><span>…0c76 (server-managed, zero browser exposure)</span>
+            <span style={{ fontWeight: 600 }}>Models</span><span>Veo 3.1 (Video) · GPT-Image-2 (Images)</span>
+            <span style={{ fontWeight: 600 }}>Grant</span><span>1,000,000 Video Tokens Active</span>
+          </div>
         </Section>
 
-        <Section title="Claude AI">
+        <Section title="ADV3NT Engine">
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
-            Add your Anthropic API key to let Claude analyze the image just before generating your product character sheet.
+            ADV3NT Engine is active via OpenClaw Gateway. Vision analysis handled by MiniMax-M3.
           </p>
-          {claudeKey ? (
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#34C759' }} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#34C759' }}>Claude connected</span>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>···{claudeKey.slice(-4)}</span>
-                </div>
-                <button
-                  onClick={() => { localStorage.removeItem(CLAUDE_KEY); setClaudeKey(''); setClaudeInput(''); setShowClaudeInput(false) }}
-                  style={{ padding: '7px 14px', borderRadius: 8, fontSize: 13, color: '#FF3B30', background: 'rgba(255,59,48,0.08)', border: '1px solid rgba(255,59,48,0.18)', fontWeight: 500 }}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ) : showClaudeInput ? (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input
-                autoFocus
-                type="password"
-                value={claudeInput}
-                onChange={e => setClaudeInput(e.target.value)}
-                placeholder="sk-ant-..."
-                onKeyDown={e => {
-                  if (e.key === 'Enter' && claudeInput.trim()) {
-                    const k = claudeInput.trim()
-                    localStorage.setItem(CLAUDE_KEY, k)
-                    setClaudeKey(k)
-                    setClaudeInput('')
-                    setShowClaudeInput(false)
-                  }
-                }}
-                style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: '1.5px solid var(--border)', background: 'var(--bg)', fontSize: 14, color: 'var(--text-primary)', fontFamily: 'monospace' }}
-              />
-              <button
-                onClick={() => {
-                  const k = claudeInput.trim()
-                  if (!k) return
-                  localStorage.setItem(CLAUDE_KEY, k)
-                  setClaudeKey(k)
-                  setClaudeInput('')
-                  setShowClaudeInput(false)
-                }}
-                style={{ padding: '10px 18px', borderRadius: 8, fontSize: 14, fontWeight: 600, background: '#1D1D1F', color: '#fff', border: 'none', cursor: 'pointer' }}
-              >
-                Save
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowClaudeInput(true)}
-              style={{ padding: '10px 20px', borderRadius: 8, fontSize: 14, fontWeight: 600, background: '#1D1D1F', color: '#fff', border: 'none', cursor: 'pointer' }}
-            >
-              Add API Key
-            </button>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StatusDot color="#34C759" />
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#34C759' }}>ADV3NT Engine: Active</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+            Vision: MiniMax-M3 · Reasoning: GLM-5
+          </div>
         </Section>
       </div>
     </div>

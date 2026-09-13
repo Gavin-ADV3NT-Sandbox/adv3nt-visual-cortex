@@ -6,12 +6,14 @@ import ImageGrid from '../components/ImageGrid'
 import MasonryGrid from '../components/MasonryGrid'
 import Lightbox from '../components/Lightbox'
 import { compressImage, downloadImage } from '../utils/imageUtils'
-import { generateSingleImage, generateThreeImages, generateVideo, initSession, pollAllJobs, getPendingGens, clearPendingGen, getPendingVideo, clearPendingVideo, resumeVideoJob } from '../utils/higgsfieldGenerate'
+import { generateSingleImage, generateThreeImages, initSession, pollAllJobs, getPendingGens, clearPendingGen } from '../utils/elevenlabsGenerate'
+// Video pipeline: ElevenLabs Flows (drop-in, same localStorage pending contract as HF)
+import { generateVideo, resumeVideoJob, savePendingVideo, clearPendingVideo, getPendingVideo } from '../utils/elevenlabsGenerate'
 import { buildThreeVariationPrompts } from '../utils/systemPrompt'
 import { gColor, pLabel } from '../utils/influencerUtils'
 import { useTheme } from '../context/theme'
-import { isHFConnected } from '../utils/higgsfieldAuth'
-import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../utils/charSheetPrompt'
+import { buildCharSheetPrompt } from '../utils/charSheetPrompt'
+import { buildCharSheetPromptWithGavin } from '../utils/gavin'
 import PhotoStudioPanel from './PhotoStudio'
 import WardrobeDrawer from '../components/WardrobeDrawer'
 
@@ -219,6 +221,7 @@ function HeroBanner({ influencer, onDelete, pct, onUpdate }) {
   const isMobile = useMobile()
   const [editingTag, setEditingTag] = useState(false)
   const [tagDraft, setTagDraft] = useState(influencer.tag || '')
+  const [saved, setSaved] = useState(false)
 
   return (
     <div style={{
@@ -311,6 +314,24 @@ function HeroBanner({ influencer, onDelete, pct, onUpdate }) {
 
         {/* Actions */}
         <div style={{display:'flex',gap:8,flexShrink:0,marginLeft:isMobile?'auto':0}}>
+          <button onClick={async () => {
+            try {
+              await fetch(`/api/state/${influencer.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(influencer),
+              })
+              setSaved(true)
+              setTimeout(() => setSaved(false), 2000)
+            } catch (e) { console.error('Save to server failed:', e) }
+          }} style={{
+            padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:600,
+            background:'rgba(99,102,241,0.08)',color:'#6366F1',border:'1.5px solid rgba(99,102,241,0.2)',
+            transition:'background 0.15s',
+          }}
+            onMouseEnter={e=>{e.currentTarget.style.background='rgba(99,102,241,0.15)'}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(99,102,241,0.08)'}}
+          >{saved ? '✓ Saved!' : '💾 Save to Server'}</button>
           <button onClick={onDelete} style={{
             padding:'8px 14px',borderRadius:8,fontSize:12,fontWeight:600,
             background:'rgba(255,59,48,0.08)',color:'#FF3B30',border:'1.5px solid rgba(255,59,48,0.2)',
@@ -1632,8 +1653,8 @@ const HAIR_PRESETS_M = ['Low fade', 'Side part', 'Buzz cut', 'Slicked back', 'Te
 
 function buildWardrobePrompt(influencer, { outfit, hair, customText }) {
   const phys = influencer.physicalDesc ? `The subject: ${influencer.physicalDesc}. ` : ''
-  const identity = `IDENTITY LOCK — replicate exactly from reference: facial bone structure, face shape, jaw, nose bridge and tip, lip shape, eye shape and color, eyebrow arch and thickness, skin tone, skin texture and pores, all freckles, moles, marks, scars, natural asymmetries. Zero facial drift — this must be unmistakably the same person.`
-  const layout = `Output must be the exact same 4-panel character turnaround sheet as the reference image. Single row of four equally sized full-body panels with these labels in clean sans-serif capitals above each: "FRONT VIEW" | "SIDE VIEW" | "BACK VIEW" | "THREE-QUARTER VIEW". Keep identical body poses, stance, arm positions, proportions, and panel layout from the reference. Do NOT change poses, labels, panel structure, background (pure white seamless), or lighting.`
+  const identity = `IDENTITY LOCK — the first reference image defines the subject's exact identity. Replicate from it: facial bone structure, face shape, jaw, nose bridge and tip, lip shape, eye shape and color, eyebrow arch and thickness, skin tone, skin texture and pores, all freckles, moles, marks, natural asymmetries, hairline and hair color. Zero facial drift — this must be unmistakably the same person as the first reference image.`
+  const layout = `Layout: single row of four equally sized full-body panels, head to toe, each with a label in clean sans-serif capitals above the figure: "FRONT VIEW" (facing directly forward, arms relaxed at sides, feet together) | "SIDE VIEW" (perfect left profile, arms at sides) | "BACK VIEW" (facing away, arms relaxed) | "THREE-QUARTER VIEW" (45-degree angle facing forward-right). All four panels show the SAME person — identical face, hair, skin tone, body proportions, and outfit. Pure white seamless background, soft neutral studio lighting, flat and even across all four panels — no shadows, no color cast.`
 
   const changeParts = [
     outfit && `outfit — ${outfit}`,
@@ -1735,6 +1756,7 @@ function WardrobeGenerator({ influencer, onAdd }) {
     try {
       const outfitText = [top, bottom].filter(Boolean).join(', ')
       const label = 'Custom Look'
+      // STRICT IDENTITY ANCHORING: mainImage only — no secondary sheet refs
       const prompt = buildWardrobePrompt(influencer, {
         outfit: outfitText, hair,
         customText: customText || null,
@@ -2090,7 +2112,7 @@ function HomeSection({ slots=[], onChange }) {
 // Brand deal card — WorldDropCard style with brand + category fields
 const GEN_DURATION_MS = 150000 // ~2m30s estimated total
 
-function BrandDealCard({ deal, editingBrand, editBrand, onEditBrand, onStartEdit, onCommitEdit, onCancelEdit, onImageChange, onDelete, onCategoryChange, onLightbox, generating, progress, claudeStatus, onGenerate }) {
+function BrandDealCard({ deal, editingBrand, editBrand, onEditBrand, onStartEdit, onCommitEdit, onCancelEdit, onImageChange, onDelete, onCategoryChange, onLightbox, generating, progress, engineStatus, onGenerate }) {
   const fileRef = useRef()
   const [hovered,setHovered]=useState(false)
   const [dragOver,setDragOver]=useState(false)
@@ -2119,7 +2141,7 @@ function BrandDealCard({ deal, editingBrand, editBrand, onEditBrand, onStartEdit
   },[generating])
 
   function genLabel(pct){
-    if(pct<8) return 'Asking Claude…'
+    if(pct<8) return 'Asking ADV3NT Engine…'
     if(pct<20) return 'Uploading…'
     if(pct<75) return 'Generating…'
     return 'Almost done…'
@@ -2201,12 +2223,12 @@ function BrandDealCard({ deal, editingBrand, editBrand, onEditBrand, onStartEdit
             </div>
           </div>
         )}
-        {!generating && claudeStatus && (
+        {!generating && engineStatus && (
           <div style={{position:'absolute',bottom:6,right:6,fontSize:10,fontWeight:700,padding:'3px 7px',borderRadius:6,backdropFilter:'blur(6px)',
-            background: claudeStatus==='done' ? 'rgba(52,199,89,0.85)' : claudeStatus==='analyzing' ? 'rgba(139,92,246,0.85)' : 'rgba(255,59,48,0.85)',
+            background: engineStatus==='done' ? 'rgba(52,199,89,0.85)' : engineStatus==='analyzing' ? 'rgba(139,92,246,0.85)' : 'rgba(255,59,48,0.85)',
             color:'#fff',maxWidth:'90%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',
           }}>
-            {claudeStatus==='done' ? '✓ Claude analyzed' : claudeStatus==='analyzing' ? 'Claude analyzing…' : '✗ '+claudeStatus.replace('error:','')}
+            {engineStatus==='done' ? '✓ ADV3NT Engine analyzed' : engineStatus==='analyzing' ? 'ADV3NT Engine analyzing…' : '✗ '+engineStatus.replace('error:','')}
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" multiple style={{display:'none'}}
@@ -2417,7 +2439,7 @@ function BrandDealSection({ deals=[], onChange }) {
   const [lightbox,setLightbox]=useState(null)
   const [generating,setGenerating]=useState({})
   const [genProgress,setGenProgress]=useState({})
-  const [claudeStatus,setClaudeStatus]=useState({})
+  const [engineStatus,setEngineStatus]=useState({})
 
   const existingBrands = new Set(deals.map(d => d.brand.toLowerCase()))
 
@@ -2437,26 +2459,24 @@ function BrandDealSection({ deals=[], onChange }) {
   function commitRename(){ if(editBrand.trim()) updateDeal(editId,{brand:editBrand.trim()}); setEditId(null); setEditBrand('') }
 
   async function handleGenerate(deal) {
-    if (!isHFConnected()) { alert('Connect Higgsfield in Settings first'); return }
     if (!deal.image) { alert('Upload a product image first'); return }
 
     setGenerating(g=>({...g,[deal.id]:true}))
     setGenProgress(p=>({...p,[deal.id]:0}))
 
     let imagePrompt = null
-    const claudeKey = localStorage.getItem('claude_api_key')
     const allImages = deal.images?.length ? deal.images : (deal.image ? [deal.image] : [])
-    if (claudeKey && allImages.length) {
-      setClaudeStatus(s=>({...s,[deal.id]:'analyzing'}))
+    if (allImages.length) {
+      setEngineStatus(s=>({...s,[deal.id]:'analyzing'}))
       try {
         setGenProgress(p=>({...p,[deal.id]:5}))
-        imagePrompt = await buildCharSheetPromptWithClaude(allImages, deal.brand, deal.category, claudeKey)
-        setClaudeStatus(s=>({...s,[deal.id]:'done'}))
-        setTimeout(()=>setClaudeStatus(s=>({...s,[deal.id]:null})),3000)
+        imagePrompt = await buildCharSheetPromptWithGavin(allImages, deal.brand, deal.category)
+        setEngineStatus(s=>({...s,[deal.id]:'done'}))
+        setTimeout(()=>setEngineStatus(s=>({...s,[deal.id]:null})),3000)
       } catch(e) {
-        alert('Claude: ' + e.message)
-        setClaudeStatus(s=>({...s,[deal.id]:'error:'+e.message}))
-        setTimeout(()=>setClaudeStatus(s=>({...s,[deal.id]:null})),5000)
+        alert('ADV3NT Engine: ' + e.message)
+        setEngineStatus(s=>({...s,[deal.id]:'error:'+e.message}))
+        setTimeout(()=>setEngineStatus(s=>({...s,[deal.id]:null})),5000)
       }
     }
     if (!imagePrompt) imagePrompt = buildCharSheetPrompt(deal.brand, deal.category)
@@ -2507,7 +2527,7 @@ function BrandDealSection({ deals=[], onChange }) {
               onLightbox={(imgs,start)=>setLightbox({images:imgs,start:start||0})}
               generating={!!generating[deal.id]}
               progress={genProgress[deal.id]||0}
-              claudeStatus={claudeStatus[deal.id]||null}
+              engineStatus={engineStatus[deal.id]||null}
               onGenerate={handleGenerate}
             />
           ))}

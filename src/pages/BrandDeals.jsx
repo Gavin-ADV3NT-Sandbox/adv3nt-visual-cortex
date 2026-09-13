@@ -1,9 +1,9 @@
 import { useState, useRef } from 'react'
 import { useBrandDeals, generateId } from '../store'
 import { compressImage, downloadImage } from '../utils/imageUtils'
-import { generateSingleImage } from '../utils/higgsfieldGenerate'
-import { isHFConnected } from '../utils/higgsfieldAuth'
-import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../utils/charSheetPrompt'
+import { generateSingleImage } from '../utils/elevenlabsGenerate'
+import { buildCharSheetPrompt } from '../utils/charSheetPrompt'
+import { buildCharSheetPromptWithGavin } from '../utils/gavin'
 import Lightbox from '../components/Lightbox'
 
 function NewDealModal({ onClose, onSave }) {
@@ -184,7 +184,7 @@ function DealCard({ deal, generating, progress, onDelete, onOpen, onRename, onGe
               animation: 'spin 0.75s linear infinite',
             }} />
             <div style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>
-              {progress < 10 ? 'Asking Claude…' : progress < 25 ? 'Uploading…' : 'Generating…'}
+              {progress < 10 ? 'Asking ADV3NT Engine…' : progress < 25 ? 'Uploading…' : 'Generating…'}
             </div>
             <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>{Math.round(progress)}%</div>
           </div>
@@ -313,28 +313,26 @@ export default function BrandDeals() {
   }
 
   async function handleGenerate(deal) {
-    if (!isHFConnected()) { alert('Connect Higgsfield in Settings first'); return }
 
     setGenerating(g => ({ ...g, [deal.id]: true }))
     setGenProgress(p => ({ ...p, [deal.id]: 0 }))
 
     try {
-      // Step 1 — Claude studies the image and writes the full Higgsfield prompt
+      // Step 1 — ADV3NT Engine studies the image and writes the full Higgsfield prompt
       let imagePrompt = null
-      const claudeKey = localStorage.getItem('claude_api_key')
-      console.log('[BrandDeals] claudeKey found:', !!claudeKey, '| deal.image exists:', !!deal.image)
-      if (claudeKey && deal.image) {
+      console.log('[BrandDeals] deal.image exists:', !!deal.image)
+      if (deal.image) {
         try {
           setGenProgress(p => ({ ...p, [deal.id]: 5 }))
-          console.log('[BrandDeals] Calling Claude...')
-          imagePrompt = await buildCharSheetPromptWithClaude(deal.image, deal.brand, deal.category, claudeKey)
-          console.log('[BrandDeals] Claude returned prompt:', imagePrompt?.slice(0, 120))
+          console.log('[BrandDeals] Calling ADV3NT Engine...')
+          imagePrompt = await buildCharSheetPromptWithGavin(deal.image, deal.brand, deal.category)
+          console.log('[BrandDeals] Engine returned prompt:', imagePrompt?.slice(0, 120))
         } catch (e) {
-          console.error('[BrandDeals] Claude failed:', e.message)
+          console.error('[BrandDeals] Engine failed:', e.message)
         }
       }
 
-      // Step 2 — fall back to template if Claude wasn't available or failed
+      // Step 2 — fall back to template if engine wasn't available or failed
       if (!imagePrompt) {
         console.log('[BrandDeals] Using text fallback prompt')
         imagePrompt = buildCharSheetPrompt(deal.brand, deal.category)

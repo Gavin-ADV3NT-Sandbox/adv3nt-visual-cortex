@@ -1,5 +1,30 @@
-node_modules
-dist
+# Secrets — never commit
+.env
+.env.*
+
+# Server-disk state (large serialized profiles w/ base64 media)
+state/
+
+# Transient media & generated assets
+*.mp4
+*.mov
+*.webm
+public/kayla/
+public/marcus/
+public/camila/
+
+# Dependencies & build
+node_modules/
+dist/
+
+# Logs & OS noise
+*.log
+pm2.pid
 .DS_Store
-*.local
-.claude/
+
+# Test scratch scripts
+face-fidelity-test.mjs
+flux-probe*.mjs
+keycheck.mjs
+gemini-fidelity-test.mjs
+poll-closeup.mjs

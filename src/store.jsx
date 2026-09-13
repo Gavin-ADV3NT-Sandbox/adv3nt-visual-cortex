@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect, useRef, createContext, useContext } from 'react'
 
 // Generic small-value localStorage hook (inspiration boards, brand deals, etc.)
 function useLocalStorage(key, initial) {
@@ -62,6 +62,7 @@ function readLegacyList() {
 }
 
 function useInfluencerStore(initial) {
+  // Initial mount: localStorage snapshot (instant paint, acts as fallback)
   const [influencers, setInfluencers] = useState(() => {
     const ids = readIds()
     if (ids && ids.length > 0) {
@@ -97,6 +98,28 @@ function useInfluencerStore(initial) {
     return legacy.length > 0 ? legacy : initial
   })
 
+  // ── SERVER-DISK PRIMARY REHYDRATION ────────────────────────────────
+  // On startup/refresh, hydrate from GET /api/state (state/*.json on disk).
+  // Server profiles win; any local-only profile (never synced) is preserved.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/state')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (cancelled || !Array.isArray(data?.profiles) || data.profiles.length === 0) return
+        setInfluencers(prev => {
+          const byId = Object.fromEntries(data.profiles.map(p => [p.id, p]))
+          const localOnly = prev.filter(p => !byId[p.id])
+          return [...data.profiles, ...localOnly]
+        })
+      })
+      .catch(e => console.warn('[StateBridge] server rehydration unavailable, using localStorage fallback:', e.message))
+    return () => { cancelled = true }
+  }, [])
+
+  // ── PERSISTENCE: localStorage fallback + server disk (debounced) ──
+  // Full influencer JSON (videos, sheets, close-ups, data-URL images) is POSTed
+  // to /api/state/:id — server disk has no quota, so nothing is truncated.
   useEffect(() => {
     const ids = influencers.map(i => i.id)
     writeIds(ids)
@@ -109,6 +132,19 @@ function useInfluencerStore(initial) {
         if (!idSet.has(id)) try { localStorage.removeItem(key) } catch {}
       }
     }
+
+    // Debounced server-disk persistence
+    const snapshot = influencers.map(i => i)
+    const t = setTimeout(() => {
+      for (const inf of snapshot) {
+        fetch(`/api/state/${inf.id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(inf),
+        }).catch(e => console.warn(`[StateBridge] disk save failed for ${inf.id}:`, e.message))
+      }
+    }, 1500)
+    return () => clearTimeout(t)
   }, [influencers])
 
   return [influencers, setInfluencers]
@@ -535,4 +571,22 @@ export function useBrandDeals()        { return useContext(BrandDealsCtx) }
 
 export function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2)
+}
+
+export async function exportToServer(id) {
+  const inf = readInfluencer(id)
+  if (!inf) { console.warn('[StateBridge] No influencer found for id:', id); return false }
+  try {
+    const res = await fetch(`/api/state/${id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(inf),
+    })
+    const data = await res.json()
+    console.log('[StateBridge] Saved to server:', data)
+    return true
+  } catch (e) {
+    console.error('[StateBridge] Export failed:', e)
+    return false
+  }
 }
