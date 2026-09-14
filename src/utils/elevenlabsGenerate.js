@@ -344,7 +344,7 @@ export async function generateVideo({
       console.warn(`[EL] Veo ref clamp: dropping ${converted.length - MAX_VEO_REFS} ref(s) beyond the 3-item API ceiling`)
     }
     body.images = converted.slice(0, MAX_VEO_REFS).map((image, i) =>
-      i === 0 ? { image, role: 'subject' } : { image, role: 'reference' })
+      i === 0 ? { image, role: 'subject' } : { image, role: 'style' })
   } else if (converted.length) {
     body.images = converted.slice(0, 9)
   }
