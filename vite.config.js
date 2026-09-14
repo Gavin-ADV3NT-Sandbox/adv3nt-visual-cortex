@@ -107,15 +107,31 @@ const mediaPlugin = {
   name: 'media-vault',
   configureServer(server) {
     // Serve cached media from disk: GET /media/<file>
+    // Full HTTP range streaming (206 partial content) — Chrome's <video>
+    // decoder requires byte-range support to play local MP4s.
     server.middlewares.use('/media', (req, res) => {
       const file = req.url.split('?')[0].replace(/^\/+/, '')
       if (!file || file.includes('..')) { res.writeHead(400); res.end('Bad request'); return }
       const filePath = path.join(process.cwd(), 'media', file)
-      if (!fs.existsSync(filePath)) { res.writeHead(404); res.end('Not found'); return }
+      if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) { res.writeHead(404); res.end('Not found'); return }
       const ext = path.extname(file).toLowerCase()
       const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' }[ext] || 'application/octet-stream'
-      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' })
-      fs.createReadStream(filePath).pipe(res)
+      const size = fs.statSync(filePath).size
+      const base = { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable', 'Accept-Ranges': 'bytes' }
+      const range = req.headers.range
+      if (range) {
+        const m = range.match(/bytes=(\d*)-(\d*)/)
+        if (!m) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); res.end(); return }
+        let start = m[1] === '' ? 0 : parseInt(m[1], 10)
+        let end = m[2] === '' ? size - 1 : parseInt(m[2], 10)
+        if (start >= size || start > end) { res.writeHead(416, { 'Content-Range': `bytes */${size}` }); res.end(); return }
+        end = Math.min(end, size - 1)
+        res.writeHead(206, { ...base, 'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': end - start + 1 })
+        fs.createReadStream(filePath, { start, end }).pipe(res)
+      } else {
+        res.writeHead(200, { ...base, 'Content-Length': size })
+        fs.createReadStream(filePath).pipe(res)
+      }
     })
     // Cache remote media to disk: POST /api/media/save {url} -> {localUrl}
     server.middlewares.use('/api/media/save', async (req, res) => {
