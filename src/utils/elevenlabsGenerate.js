@@ -335,11 +335,15 @@ export async function generateVideo({
     generate_audio: true,
   }
   if (isVeo) {
-    // SUBJECT DISAMBIGUATION: only the first image (the canonical portrait /
-    // start-frame) drives the subject identity. All other refs (wardrobe runway
-    // photos, products, close-ups) pass as plain visual references so Veo cannot
-    // co-animate a runway model against the primary subject.
-    body.images = converted.map((image, i) =>
+    // API ceiling: Veo accepts at most 3 images (422: "List should have at
+    // most 3 items"). Priority is fixed by buildRefs ordering: [0] mainImage
+    // (subject, mandatory) → [1] wardrobe (reference) → [2] sheet/product
+    // (reference). Everything beyond index 2 is dropped.
+    const MAX_VEO_REFS = 3
+    if (converted.length > MAX_VEO_REFS) {
+      console.warn(`[EL] Veo ref clamp: dropping ${converted.length - MAX_VEO_REFS} ref(s) beyond the 3-item API ceiling`)
+    }
+    body.images = converted.slice(0, MAX_VEO_REFS).map((image, i) =>
       i === 0 ? { image, role: 'subject' } : { image, role: 'reference' })
   } else if (converted.length) {
     body.images = converted.slice(0, 9)
