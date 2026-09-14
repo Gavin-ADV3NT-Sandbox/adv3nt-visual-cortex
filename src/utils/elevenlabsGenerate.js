@@ -358,8 +358,7 @@ export async function generateVideo({
     if (converted.length > MAX_VEO_REFS) {
       console.warn(`[EL] Veo ref clamp: dropping ${converted.length - MAX_VEO_REFS} ref(s) beyond the 3-item API ceiling`)
     }
-    body.images = converted.slice(0, MAX_VEO_REFS).map((image, i) =>
-      { image, role: 'subject' })
+    body.images = converted.slice(0, MAX_VEO_REFS).map(image => ({ image, role: 'subject' }))
   }
   // DISPATCH AUDIT — full payload visibility before every video POST
   console.log(`[EL] video dispatch → model=${body.model_id} prompt=${String(body.prompt).slice(0, 120)}... ` +
