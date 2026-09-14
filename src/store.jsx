@@ -120,18 +120,26 @@ function useInfluencerStore(initial) {
   // ── PERSISTENCE: localStorage fallback + server disk (debounced) ──
   // Full influencer JSON (videos, sheets, close-ups, data-URL images) is POSTed
   // to /api/state/:id — server disk has no quota, so nothing is truncated.
+  const prevIdsRef = useRef(null)
   useEffect(() => {
     const ids = influencers.map(i => i.id)
     writeIds(ids)
     for (const inf of influencers) writeInfluencer(inf)
-    // Remove keys for deleted influencers
+    // Remove keys for deleted influencers AND purge them from server disk —
+    // prevents zombie rehydration from state/*.json on next refresh
     const idSet = new Set(ids)
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith(INF_PREFIX)) {
-        const id = key.slice(INF_PREFIX.length)
-        if (!idSet.has(id)) try { localStorage.removeItem(key) } catch {}
+    const prevIds = prevIdsRef.current
+    if (prevIds) {
+      for (const id of prevIds) {
+        if (!idSet.has(id)) {
+          try { localStorage.removeItem(`${INF_PREFIX}${id}`) } catch {}
+          fetch(`/api/state/${id}`, { method: 'DELETE' })
+            .then(r => { if (r.ok) console.log('[StateBridge] deleted from disk:', id) })
+            .catch(e => console.warn(`[StateBridge] disk delete failed for ${id}:`, e.message))
+        }
       }
     }
+    prevIdsRef.current = ids
 
     // Debounced server-disk persistence
     const snapshot = influencers.map(i => i)

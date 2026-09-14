@@ -130,13 +130,33 @@ export async function cropHeadFromRef(src, topFraction = 0.28) {
 }
 
 async function toInlineImage(src) {
-  const res = await fetch(src)
+  if (!src) throw new Error('no image source provided')
+  // Resolve any origin — data:, blob:, hosted, or CORS-blocked CDN — to inline_base64.
+  // CDN refs route through the dev-server img-proxy (server-side fetch, no CORS);
+  // blob: URLs resolve via FileReader (same-origin object URLs always readable).
+  let fetchable = src
+  if (src.startsWith('blob:')) {
+    fetchable = await new Promise((res, rej) => {
+      const fr = new FileReader()
+      fr.onload = () => res(fr.result)
+      fr.onerror = () => rej(new Error('blob: URL unreadable (object may be revoked)'))
+      fetch(src).then(b => b.blob()).then(b => fr.readAsDataURL(b)).catch(rej)
+    })
+    return { type: 'inline_base64', content_base64: fetchable.split(',')[1], mime_type: fetchable.slice(5, fetchable.indexOf(';')) }
+  }
+  if (/^https?:/.test(src) && !src.includes('/api/img-proxy')) {
+    fetchable = `/api/img-proxy?url=${encodeURIComponent(src)}`
+  }
+  const res = await fetch(fetchable)
+  if (!res.ok) throw new Error(`ref fetch failed: HTTP ${res.status} for ${String(src).slice(0, 60)}`)
   const blob = await res.blob()
   let mime = blob.type || 'image/jpeg'
   if (!['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(mime)) {
     mime = 'image/jpeg'
   }
-  return { type: 'inline_base64', content_base64: bufToBase64(new Uint8Array(await blob.arrayBuffer())), mime_type: mime }
+  const b64 = bufToBase64(new Uint8Array(await blob.arrayBuffer()))
+  if (!b64 || b64.length < 100) throw new Error(`ref resolved to empty/invalid bytes (${b64.length}b)`)  
+  return { type: 'inline_base64', content_base64: b64, mime_type: mime }
 }
 
 async function toInlineAudio(src) {
@@ -161,6 +181,16 @@ async function convertImages(srcs) {
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 async function flowsPost(kind, body) {
+  // Conditioning audit: log images[0] type/length/preview immediately before dispatch.
+  // A text-only hallucination dispatch (empty/missing images) is caught here.
+  if (kind === 'image') {
+    const im0 = body?.images?.[0]
+    if (im0?.content_base64) {
+      console.log(`[EL] images[0] OK: type=${im0.type} mime=${im0.mime_type} b64len=${im0.content_base64.length} preview=${im0.content_base64.slice(0, 32)}...`)
+    } else {
+      console.warn(`[EL] ⚠️ images[0] MISSING/EMPTY (images.length=${body?.images?.length ?? 0}) — dispatch will be text-only!`, new Error('stack').stack?.split('\n')[2])
+    }
+  }
   const res = await fetch(`${FLOWS_BASE}/${kind}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -149,6 +149,19 @@ const stateSavePlugin = {
         return
       }
 
+      if (req.method === 'DELETE' && id) {
+        const filePath = path.join(stateDir, `${id}.json`)
+        try {
+          if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ success: true, deleted: id }))
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: e.message }))
+        }
+        return
+      }
+
       if (req.method === 'POST' && id) {
         const chunks = []
         req.on('data', c => chunks.push(c))
