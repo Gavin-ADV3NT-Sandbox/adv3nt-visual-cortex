@@ -28,3 +28,4 @@ flux-probe*.mjs
 keycheck.mjs
 gemini-fidelity-test.mjs
 poll-closeup.mjs
+media/

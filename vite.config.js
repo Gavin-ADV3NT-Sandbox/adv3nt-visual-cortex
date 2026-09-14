@@ -103,6 +103,53 @@ const claudePlugin = {
 }
 
 // State Bridge — allows UI to save influencer profiles to disk for server-side agent access
+const mediaPlugin = {
+  name: 'media-vault',
+  configureServer(server) {
+    // Serve cached media from disk: GET /media/<file>
+    server.middlewares.use('/media', (req, res) => {
+      const file = req.url.split('?')[0].replace(/^\/+/, '')
+      if (!file || file.includes('..')) { res.writeHead(400); res.end('Bad request'); return }
+      const filePath = path.join(process.cwd(), 'media', file)
+      if (!fs.existsSync(filePath)) { res.writeHead(404); res.end('Not found'); return }
+      const ext = path.extname(file).toLowerCase()
+      const mime = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.mp4': 'video/mp4', '.webm': 'video/webm' }[ext] || 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'public, max-age=31536000, immutable' })
+      fs.createReadStream(filePath).pipe(res)
+    })
+    // Cache remote media to disk: POST /api/media/save {url} -> {localUrl}
+    server.middlewares.use('/api/media/save', async (req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+      if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return }
+      if (req.method !== 'POST') { res.writeHead(405); res.end('Method not allowed'); return }
+      const chunks = []
+      req.on('data', c => chunks.push(c))
+      await new Promise(r => req.on('end', r))
+      let url = ''
+      try { url = JSON.parse(Buffer.concat(chunks).toString()).url || '' } catch {}
+      if (!/^https?:/.test(url)) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Missing url' })); return }
+      try {
+        const mediaDir = path.join(process.cwd(), 'media')
+        fs.mkdirSync(mediaDir, { recursive: true })
+        const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux aarch64) ADV3NT-VisualCortex/1.0', 'Accept': 'image/*,video/*,*/*' } })
+        if (!r.ok) throw new Error(`upstream HTTP ${r.status}`)
+        const buf = Buffer.from(await r.arrayBuffer())
+        const extFromUrl = (url.split('?')[0].match(/\.(png|jpe?g|webp|mp4|webm)$/i) || [])[0]
+        const ext = extFromUrl || (String(r.headers.get('content-type')).includes('video') ? '.mp4' : '.png')
+        const name = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}${ext.toLowerCase()}`
+        fs.writeFileSync(path.join(mediaDir, name), buf)
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ localUrl: `/media/${name}`, bytes: buf.length }))
+      } catch (e) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: e.message }))
+      }
+    })
+  },
+}
+
 const stateSavePlugin = {
   name: 'state-bridge',
   configureServer(server) {
@@ -328,7 +375,7 @@ const gavinProxy = {
 }
 
 export default defineConfig({
-  plugins: [react(), searchPlugin, imgProxyPlugin, claudePlugin, stateSavePlugin, elevenlabsProxy, gavinProxy],
+  plugins: [react(), searchPlugin, imgProxyPlugin, claudePlugin, mediaPlugin, stateSavePlugin, elevenlabsProxy, gavinProxy],
   server: {
     host: '0.0.0.0',
     proxy: {

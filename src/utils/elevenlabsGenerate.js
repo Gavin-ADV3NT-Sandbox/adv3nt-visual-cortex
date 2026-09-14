@@ -238,9 +238,12 @@ async function pollGenerations(kind, jobIds, total, onProgress, onPartialResults
 
         if (status === 'completed' && data?.content_url) {
           pending.delete(id)
-          if (!urls.includes(data.content_url)) {
-            urls.push(data.content_url)
-            onResult?.(data.content_url)
+          // Persist to server disk immediately — signed CDN URLs expire;
+          // state/*.json only ever sees permanent /media/ endpoints
+          const localUrl = await cacheMediaLocal(data.content_url)
+          if (!urls.includes(localUrl)) {
+            urls.push(localUrl)
+            onResult?.(localUrl)
             onProgress?.(Math.min(22 + (urls.length / total) * 73, 95))
             onPartialResults?.(urls.slice(0, total))
           }
@@ -256,6 +259,27 @@ async function pollGenerations(kind, jobIds, total, onProgress, onPartialResults
   }
 
   return urls
+}
+
+// Cache a signed CDN content_url to local disk (media/) and return the permanent
+// local URL. Falls back to the remote URL if the cache endpoint is unreachable —
+// persistence is best-effort at this layer, never a hard failure.
+async function cacheMediaLocal(url) {
+  if (!url || !/^https?:/.test(url)) return url // already local (data:, /media/)
+  try {
+    const r = await fetch('/api/media/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    })
+    if (r.ok) {
+      const d = await r.json()
+      if (d.localUrl) return d.localUrl
+    }
+  } catch (e) {
+    console.warn('[EL] media cache failed, using remote URL:', e.message)
+  }
+  return url
 }
 
 // HF-compatible signature: pollAllJobs(jobIds, total, onProgress, _staleTolerance, isCancelled, onPartialResults)
@@ -311,7 +335,12 @@ export async function generateVideo({
     generate_audio: true,
   }
   if (isVeo) {
-    body.images = converted.slice(0, 3).map(image => ({ image, role: 'subject' }))
+    // SUBJECT DISAMBIGUATION: only the first image (the canonical portrait /
+    // start-frame) drives the subject identity. All other refs (wardrobe runway
+    // photos, products, close-ups) pass as plain visual references so Veo cannot
+    // co-animate a runway model against the primary subject.
+    body.images = converted.map((image, i) =>
+      i === 0 ? { image, role: 'subject' } : { image, role: 'reference' })
   } else if (converted.length) {
     body.images = converted.slice(0, 9)
   }
