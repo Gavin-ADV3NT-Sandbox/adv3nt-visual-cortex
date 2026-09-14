@@ -359,6 +359,8 @@ export async function generateVideo({
       console.warn(`[EL] Veo ref clamp: dropping ${converted.length - MAX_VEO_REFS} ref(s) beyond the 3-item API ceiling`)
     }
     body.images = converted.slice(0, MAX_VEO_REFS).map(image => ({ image, role: 'subject' }))
+  } else if (converted.length) {
+    body.images = converted.slice(0, 9)
   }
   // DISPATCH AUDIT — full payload visibility before every video POST
   console.log(`[EL] video dispatch → model=${body.model_id} prompt=${String(body.prompt).slice(0, 120)}... ` +
@@ -371,8 +373,6 @@ export async function generateVideo({
       try { const r = await fetch(src, { method: 'HEAD' }); if (!r.ok) console.warn(`[EL] ⚠️ images[${i}] (${im.role}) may be unreachable: HTTP ${r.status} ${src.slice(0, 80)}`) }
       catch (e) { console.warn(`[EL] ⚠️ images[${i}] (${im.role}) HEAD check failed: ${e.message}`) }
     }
-  } else if (converted.length) {
-    body.images = converted.slice(0, 9)
   }
 
   onProgress?.(28)
