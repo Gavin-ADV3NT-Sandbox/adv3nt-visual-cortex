@@ -224,6 +224,7 @@ async function flowsGet(kind, id) {
 async function pollGenerations(kind, jobIds, total, onProgress, onPartialResults, isCancelled, onResult) {
   const pending = new Set(jobIds)
   const urls = []
+  const failed = []
 
   for (let round = 0; round < 270 && pending.size > 0 && urls.length < total; round++) {
     if (isCancelled?.()) throw new Error('CANCELLED')
@@ -249,7 +250,15 @@ async function pollGenerations(kind, jobIds, total, onProgress, onPartialResults
           }
         } else if (status === 'failed') {
           pending.delete(id)
-          console.warn(`[EL] generation ${id} failed:`, data?.failure_reason, data?.error_message)
+          // UNMASKED: dump ElevenLabs' exact diagnostic payload — every field the API returns
+          const detail = JSON.stringify({
+            status: data?.status, status_text: data?.status_text,
+            error: data?.error, error_message: data?.error_message,
+            failure_reason: data?.failure_reason, detail: data?.detail,
+            message: data?.message,
+          })
+          console.error(`[EL] generation ${id} FAILED — raw upstream payload:`, detail)
+          failed.push({ id, detail })
         }
       } catch (e) {
         if (e.message === 'CANCELLED') throw e
@@ -288,6 +297,10 @@ export async function pollAllJobs(jobIds, total, onProgress, _staleTolerance = 8
   // per-id and the loop expires, so stale resume entries fail gracefully.
   const urls = await pollGenerations('image', jobIds, total, onProgress, onPartialResults, isCancelled)
   if (urls.length > 0) { onProgress?.(100); return urls.slice(0, total) }
+  if (failed.length && urls.length === 0) {
+    const detail = failed.map(f => `${f.id}: ${f.detail}`).join(' | ')
+    throw new Error(`Generation failed upstream — ElevenLabs raw payload: ${detail}`)
+  }
   if (jobIds.length === 0) throw new Error('No job IDs to poll')
   throw new Error('Generation timed out — no results from ElevenLabs')
 }
@@ -337,14 +350,28 @@ export async function generateVideo({
   if (isVeo) {
     // API ceiling: Veo accepts at most 3 images (422: "List should have at
     // most 3 items"). Priority is fixed by buildRefs ordering: [0] mainImage
-    // (subject, mandatory) → [1] wardrobe (reference) → [2] sheet/product
-    // (reference). Everything beyond index 2 is dropped.
+    // (mandatory) → [1] wardrobe → [2] sheet/product; beyond index 2 dropped.
+    // ROLES: smoke-verified — Veo's backend REJECTS mixed subject+style
+    // ("does not support this mix of references"); the working baseline uses
+    // ALL-subject roles with mainImage dominant via ordering.
     const MAX_VEO_REFS = 3
     if (converted.length > MAX_VEO_REFS) {
       console.warn(`[EL] Veo ref clamp: dropping ${converted.length - MAX_VEO_REFS} ref(s) beyond the 3-item API ceiling`)
     }
     body.images = converted.slice(0, MAX_VEO_REFS).map((image, i) =>
-      i === 0 ? { image, role: 'subject' } : { image, role: 'style' })
+      { image, role: 'subject' })
+  }
+  // DISPATCH AUDIT — full payload visibility before every video POST
+  console.log(`[EL] video dispatch → model=${body.model_id} prompt=${String(body.prompt).slice(0, 120)}... ` +
+    `duration=${body.duration_secs}s aspect=${body.aspect_ratio} res=${body.resolution} ` +
+    `images=[${(body.images || []).map(im => `${im.role}:${typeof im.image === 'object' ? (im.image.type || 'obj') + (im.image.content_base64 ? `(${im.image.content_base64.length}b64)` : '') : String(im.image).slice(0, 60)}`).join(', ')}]`)
+  // Ref validity check — catch broken /media/ paths or expired URLs before dispatch
+  for (const [i, im] of (body.images || []).entries()) {
+    const src = typeof im.image === 'string' ? im.image : null
+    if (src && /^https?:/.test(src)) {
+      try { const r = await fetch(src, { method: 'HEAD' }); if (!r.ok) console.warn(`[EL] ⚠️ images[${i}] (${im.role}) may be unreachable: HTTP ${r.status} ${src.slice(0, 80)}`) }
+      catch (e) { console.warn(`[EL] ⚠️ images[${i}] (${im.role}) HEAD check failed: ${e.message}`) }
+    }
   } else if (converted.length) {
     body.images = converted.slice(0, 9)
   }

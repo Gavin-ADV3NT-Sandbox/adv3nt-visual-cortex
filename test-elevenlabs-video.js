@@ -1,112 +1,34 @@
-#!/usr/bin/env node
-// test-elevenlabs-video.js — standalone verification of the ElevenLabs Flows video pipeline.
-// Exercises the EXACT same code path the studio uses (via the Vite proxy), so the
-// result proves both the grant tokens fire AND the studio plumbing works end-to-end.
-//
-// Usage:
-//   node test-elevenlabs-video.js              → full flow (generate → poll → download)
-//   node test-elevenlabs-video.js --quick      → skip generation, just verify key + API access
-//
-// NOTE: the studio's generator runs in the browser against the Vite middleware.
-// This script bypasses Vite and hits the same ElevenLabs REST surface directly
-// with the server-stored key — proving grant + schema; the proxy adds zero logic.
-
+// CLI smoke test — mirrors generateVideo's Veo dispatch with the live Gavin profile
 import fs from 'fs'
+const key = fs.readFileSync('/home/ubuntu/.openclaw/.env', 'utf-8').split('\n').find(l => l.startsWith('ELEVENLABS_API_KEY='))?.split('=').slice(1).join('=').trim().replace(/^["']|["']$/g, '')
+const prof = JSON.parse(fs.readFileSync('state/mu0kjl5idtgfkkfwa5o.json', 'utf-8'))
 
-const ENV_PATH = '/home/ubuntu/.openclaw/.env'
-const API = 'https://api.elevenlabs.io/v1/flows'
+const refs = [
+  { role: 'subject', b64: prof.mainImage },                                    // idx 0: face (mandatory)
+  prof.wardrobeSlots?.[0]?.image ? { role: 'style', b64: prof.wardrobeSlots[0].image } : null,  // idx 1: wardrobe
+].filter(Boolean)
+const images = refs.map(r => ({ image: { type: 'inline_base64', content_base64: r.b64.split(',')[1], mime_type: 'image/jpeg' }, role: 'subject' }))
+console.log('[SMOKE] dispatch →', images.length, 'images:', images.map(i => `${i.role}(${i.image.content_base64.length}b64)`).join(', '))
 
-function readKey() {
-  try {
-    const m = fs.readFileSync(ENV_PATH, 'utf-8').match(/^ELEVENLABS_API_KEY=(.+)$/m)
-    if (!m) return null
-    return m[1].trim().replace(/^['"]|['"]$/g, '')
-  } catch { return null }
+const prompt = `Self-filmed handheld video. The man from @image_1 holds the camera at arm's length, 24mm. He wears the knitwear outfit shown in @image_2. He looks at the lens and says with a warm smile: "Hey — quick one from the studio tonight." Natural indoor light, walk-pace handheld drift.`
+const r = await fetch('https://api.elevenlabs.io/v1/flows/video', {
+  method: 'POST', headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ model_id: 'veo-3.1-generate-001', prompt, aspect_ratio: '9:16', resolution: '1080p', duration_secs: 8, generate_audio: true, images }),
+})
+const d = await r.json()
+console.log('[SMOKE] create → HTTP', r.status, d.id || JSON.stringify(d).slice(0, 200))
+if (!d.id) process.exit(1)
+for (let i = 0; i < 90; i++) {
+  await new Promise(res => setTimeout(res, 5000))
+  const st = await (await fetch('https://api.elevenlabs.io/v1/flows/video/' + d.id, { headers: { 'xi-api-key': key } })).json()
+  const s = (st.status || '').toLowerCase()
+  process.stdout.write(`  status: ${s}          \r`)
+  if (s === 'completed' && st.content_url) {
+    const dl = await fetch(st.content_url)
+    fs.writeFileSync('media/smoke-veo-gavin.mp4', Buffer.from(await dl.arrayBuffer()))
+    console.log('\n[SMOKE] DONE → media/smoke-veo-gavin.mp4 (' + fs.statSync('media/smoke-veo-gavin.mp4').size + ' bytes)')
+    process.exit(0)
+  }
+  if (s === 'failed') { console.log('\n[SMOKE] FAILED — raw payload:', JSON.stringify({ status_text: st.status_text, error: st.error, error_message: st.error_message, failure_reason: st.failure_reason, detail: st.detail })); process.exit(1) }
 }
-
-async function api(method, path, key, body) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: { 'xi-api-key': key, 'Content-Type': 'application/json' },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  })
-  const text = await res.text()
-  let data
-  try { data = JSON.parse(text) } catch { data = { raw: text } }
-  return { status: res.status, ok: res.ok, data }
-}
-
-async function main() {
-  const key = readKey()
-  if (!key) {
-    console.error('✗ ELEVENLABS_API_KEY not found in ' + ENV_PATH)
-    process.exit(1)
-  }
-  console.log(`✓ Key loaded (${key.length} chars, ending ...${key.slice(-4)})`)
-
-  // ── Quick mode: verify key validity by listing recent video generations ──
-  const quick = process.argv.includes('--quick')
-
-  if (quick) {
-    const list = await api('GET', '/video?page_size=5', key)
-    if (list.ok) {
-      const gens = list.data.generations || []
-      console.log(`✓ API access confirmed — ${gens.length} recent generation(s)`)
-      for (const g of gens) console.log(`  - ${g.id}: ${g.status}`)
-      process.exit(0)
-    }
-    console.error(`✗ API error ${list.status}: ${JSON.stringify(list.data).slice(0, 300)}`)
-    process.exit(1)
-  }
-
-  // ── Full mode: short test generation → poll → download ──
-  // ByteDance models are locked behind approval on this grant; Veo 3.1 verified working.
-  const body = {
-    model_id: 'veo-3.1-fast-generate-001',
-    prompt: 'A serene beach at golden hour, waves gently rolling, cinematic slow pan, warm tones',
-    aspect_ratio: '16:9',
-    duration_secs: 4,
-    generate_audio: false,
-  }
-  console.log('→ Launching test video generation (480p, 4s, fast model)...')
-  const create = await api('POST', '/video', key, body)
-  if (!create.ok) {
-    console.error(`✗ Create failed ${create.status}: ${JSON.stringify(create.data).slice(0, 400)}`)
-    process.exit(1)
-  }
-  const id = create.data.id
-  console.log(`✓ Generation launched: ${id}`)
-
-  // Poll until terminal (max ~10 min)
-  const deadline = Date.now() + 10 * 60 * 1000
-  let url = null
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 5000))
-    const st = await api('GET', `/video/${id}`, key)
-    const status = (st.data?.status || '').toLowerCase()
-    process.stdout.write(`  [${new Date().toISOString().slice(11, 19)}] status: ${status}\r`)
-    if (status === 'completed' && st.data?.content_url) { url = st.data.content_url; break }
-    if (status === 'failed') {
-      console.error(`\n✗ Generation failed: ${st.data?.failure_reason} — ${st.data?.error_message}`)
-      process.exit(1)
-    }
-    if (!st.ok) {
-      console.error(`\n✗ Poll error ${st.status}: ${JSON.stringify(st.data).slice(0, 300)}`)
-      process.exit(1)
-    }
-  }
-  if (!url) { console.error('\n✗ Timed out waiting for completion'); process.exit(1) }
-  console.log(`\n✓ Generation completed`)
-
-  // Download to confirm the URL is live
-  console.log('→ Downloading output...')
-  const dl = await fetch(url)
-  if (!dl.ok) { console.error(`✗ Download failed: HTTP ${dl.status}`); process.exit(1) }
-  const buf = Buffer.from(await dl.arrayBuffer())
-  const out = '/tmp/elevenlabs-smoke-test.mp4'
-  fs.writeFileSync(out, buf)
-  console.log(`✓ Downloaded ${(buf.length / 1024 / 1024).toFixed(2)} MB → ${out}`)
-  console.log(`\n✅ SMOKE TEST PASSED — grant tokens are firing. ${url.slice(0, 80)}...`)
-}
-
-main().catch(e => { console.error('✗ Unexpected error:', e.message); process.exit(1) })
+console.log('\n[SMOKE] timeout'); process.exit(1)
