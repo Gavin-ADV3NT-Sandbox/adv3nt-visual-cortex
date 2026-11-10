@@ -29,3 +29,4 @@ keycheck.mjs
 gemini-fidelity-test.mjs
 poll-closeup.mjs
 media/
+!.env.example
